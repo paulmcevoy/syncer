@@ -20,12 +20,6 @@ echo_status() {
     echo "===> $1"
 }
 
-# Check if we're running as the correct user
-if [ "$(whoami)" != "paul" ]; then
-    echo_status "ERROR: This script must be run as user 'paul'"
-    exit 1
-fi
-
 # Check if Python virtual environment exists
 if [ -d "$VENV_DIR" ]; then
     echo_status "Virtual environment already exists, skipping Python setup"
@@ -66,9 +60,11 @@ fi
 echo_status "Setting up systemd user directory"
 mkdir -p "$SYSTEMD_USER_DIR"
 
-# Copy service file to systemd user directory
-echo_status "Installing systemd service"
-cp "$SERVICE_FILE" "$SYSTEMD_USER_DIR/"
+# Update and install service file to systemd user directory
+echo_status "Updating service file with current working directory"
+# Read the service file, replace <MAKE_PWD> with current directory, and write to systemd user directory
+sed "s|<MAKE_PWD>|$PWD|g" "$SERVICE_FILE" > "$SYSTEMD_USER_DIR/$SERVICE_NAME.service"
+echo_status "Service file installed with path: $PWD"
 
 # Reload systemd user daemon
 echo_status "Reloading systemd user daemon"

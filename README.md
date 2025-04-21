@@ -1,86 +1,159 @@
-# Syncer - USB Drive Sync Tool
+   # External Drive Sync System
 
-This tool automatically syncs files from a source directory to a USB drive when it's mounted.
+This system automatically detects when an external drive is mounted at the configured mount point and runs a sync operation using rsync. It logs all activities to a single log file.
+
+## Architecture
+
+```mermaid
+graph TD
+    A[External Drive] -->|Mounted at| B[Mount Point]
+    B -->|Detected by| C[drive_monitor.sh]
+    C -->|Reads config from| D[.env file]
+    C -->|Executes| E[syncer.py]
+    E -->|Syncs data using| F[rsync]
+    E -->|Sends notification via| G[Twilio SMS]
+    C -->|Logs to| H[sync.log]
+    E -->|Logs to| H
+    I[systemd service] -->|Manages| C
+    J[install_drive_monitor.sh] -->|Sets up| I
+    J -->|Creates| K[Python venv]
+    K -->|Used by| E
+```
 
 ## Components
 
-1. **udev rule**: Detects when the USB drive with UUID "3735-3139" is connected
-2. **systemd service**: Runs the sync script when triggered by udev
-3. **syncer.sh**: Shell script that sets up the environment and runs the Python script
-4. **syncer.py**: Python script that performs the actual file synchronization
+- **drive_monitor.sh**: Bash script that monitors `/proc/mounts` for the external drive
+- **syncer.py**: Python script that performs the sync operation using rsync
+- **drive-monitor.service**: Systemd user service configuration
+- **install_drive_monitor.sh**: Installation script that sets up the service and Python environment
+- **.env**: Configuration file containing environment variables
+- **sync.log**: Single log file for all system events
 
-## Recent Fixes
+## How It Works
 
-The following issues have been fixed:
+1. The system runs as a systemd user service in the background
+2. It continuously monitors `/proc/mounts` for the presence of the external drive
+3. When the drive is detected, it runs the syncer.py script to:
+   - Sync data from the source directory to the destination directory using rsync
+   - Log all operations to sync.log
+   - Send an SMS notification with the sync results
+4. The system waits for the drive to be unmounted before resuming monitoring
 
-1. **Timing Issues**: Added retry logic to wait for the drive to be fully mounted
-   - The Python script now tries multiple methods to detect the mount
-   - Added a retry loop with configurable attempts and delay
-   - Increased the timeout in the systemd service
+## Configuration
 
-2. **Permission Issues**: Fixed permission problems in the shell script
-   - Added directory creation with proper permissions
-   - Added explicit chmod commands to ensure proper access
+The system is configured through the `.env` file, which contains:
 
-3. **Environment Setup**: Improved environment handling
-   - Updated systemd service to properly wait for the mount
-   - Added more logging to help diagnose issues
+```
+TWILIO_ACCOUNT_SID="your_twilio_sid"
+TWILIO_AUTH_TOKEN="your_twilio_token"
+SOURCE_DIR="/path/to/source/directory"
+DEST_DIR="/path/to/destination/directory"
+MOUNT_POINT="/media/user/drive"
+TO_PHONE_NUMBER="+1234567890"
+MGS="your_twilio_messaging_service_sid"
+```
 
-## Testing
+## Installation
 
-To test the changes without physically disconnecting and reconnecting the drive:
-
-1. Make sure your drive is mounted at `/media/paul/SD512`
-2. Run the test script:
+1. Make the installation script executable:
+   ```bash
+   chmod +x syncer/install_drive_monitor.sh
    ```
-   ./test_trigger.sh
+
+2. Run the installation script:
+   ```bash
+   ./syncer/install_drive_monitor.sh
    ```
 
-This will simulate the udev trigger and show you the output and logs.
+3. The script will:
+   - Set up a Python virtual environment (if it doesn't exist)
+   - Install required Python packages
+   - Make all scripts executable
+   - Create the initial log file
+   - Install the systemd service for your user
+   - Enable and start the service
+
+## Usage
+
+The service runs automatically in the background. When you connect your external drive at the configured mount point, the system will:
+
+1. Detect the mount
+2. Run the sync operation using rsync
+3. Log all activities to sync.log
+4. Send an SMS notification with the sync results
+
+## Checking Status
+
+- Check service status:
+  ```bash
+  systemctl --user status drive-monitor.service
+  ```
+
+- View logs:
+  ```bash
+  cat syncer/sync.log
+  ```
+
+## Stopping or Disabling
+
+- Stop the service:
+  ```bash
+  systemctl --user stop drive-monitor.service
+  ```
+
+- Disable the service (won't start on boot):
+  ```bash
+  systemctl --user disable drive-monitor.service
+  ```
 
 ## Troubleshooting
 
-If you still encounter issues:
+If the system isn't working as expected:
 
-1. Check the logs:
-   - `/home/paul/syncer/output.log` - Main script output
-   - `/tmp/udev-debug.log` - Debug output from the shell script
-   - `/home/paul/syncer/logs/my-mount-script.log` - Python script logs
-   - `/home/paul/sync.log` - Sync operation logs
-
-2. Verify the drive is properly mounted:
-   ```
-   mountpoint /media/paul/SD512
+1. Check the service status:
+   ```bash
+   systemctl --user status drive-monitor.service
    ```
 
-3. Check the systemd service status:
-   ```
-   systemctl --user status syncer.service
-   ```
-
-4. Manually run the script to test:
-   ```
-   /home/paul/syncer/syncer.sh
+4. Review the logs:
+   ```bash
+   cat syncer/sync.log
    ```
 
-## Modifying the udev Rule
-
-If you need to modify the udev rule, you'll need to:
-
-1. Edit the rule file (likely in `/etc/udev/rules.d/`)
-2. Reload the udev rules:
-   ```
-   sudo udevadm control --reload-rules
-   ```
-3. Trigger a test event:
-   ```
-   sudo udevadm trigger
+5. Ensure the mount point is correct:
+   ```bash
+   grep "your_mount_point" /proc/mounts
    ```
 
-The current udev rule should look something like:
-```
-ACTION=="add", SUBSYSTEM=="block", ENV{ID_FS_UUID}=="3735-3139", \
-  RUN+="/bin/su paul -c 'sleep 5; XDG_RUNTIME_DIR=/run/user/$(id -u paul) /usr/bin/systemctl --user start syncer.service'"
+6. Verify the Python executable exists:
+   ```bash
+   ls -la syncer/.venv/bin/python
+   ```
+
+## Advanced Usage
+
+### Manual Sync
+
+You can manually run the sync operation by executing:
+
+```bash
+syncer/.venv/bin/python syncer/syncer.py
 ```
 
-Consider increasing the sleep time from 2 to 5 seconds to give more time for the mount to complete.
+### Updating Configuration
+
+If you update the `.env` file, you need to restart the service for changes to take effect:
+
+```bash
+systemctl --user restart drive-monitor.service
+```
+
+### Reinstalling the Service
+
+If you make changes to the scripts or service configuration, you can reinstall the service:
+
+```bash
+./syncer/install_drive_monitor.sh
+```
+
+The installation script is designed to preserve your existing Python virtual environment while updating the service configuration.

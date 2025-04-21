@@ -6,7 +6,7 @@
 # at the specified mount point and calls a Python script when detected.
 
 # Configuration - Use absolute paths to avoid any path-related issues
-SCRIPT_DIR="/home/paul/syncer"
+SCRIPT_DIR="$PWD/syncer"
 ENV_FILE="$SCRIPT_DIR/.env"
 LOG_FILE="$SCRIPT_DIR/sync.log"
 CHECK_INTERVAL=5  # seconds

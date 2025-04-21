@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/bin/bash /home/paul/syncer/drive_monitor.sh
+ExecStart=/bin/bash <MAKE_PWD>/drive_monitor.sh
 SupplementaryGroups=
 Restart=on-failure
 RestartSec=30
