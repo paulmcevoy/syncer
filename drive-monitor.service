@@ -1,0 +1,13 @@
+[Unit]
+Description=External Drive Mount Monitor
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash /home/paul/syncer/drive_monitor.sh
+SupplementaryGroups=
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target
