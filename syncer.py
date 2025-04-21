@@ -4,6 +4,7 @@ import os
 import subprocess
 import datetime
 import sys
+import argparse
 from dotenv import load_dotenv  # Import dotenv to load environment variables
 from send_sms import send_sms  # Import the send_sms function
 
@@ -30,9 +31,12 @@ def log_message(message):
     with open(LOG_FILE, "a") as log_file:
         log_file.write(log_entry + "\n")
 
-def sync_directories():
+def sync_directories(is_initial_sync=True):
     """Sync directories using rsync."""
-    log_message(f"Starting sync from {SOURCE_DIR} to {DEST_DIR}")
+    if is_initial_sync:
+        log_message(f"Starting INITIAL sync from {SOURCE_DIR} to {DEST_DIR}")
+    else:
+        log_message(f"Starting RESYNC from {SOURCE_DIR} to {DEST_DIR}")
     
     rsync_command = [
         "rsync", "-avz", "--delete", "--stats",
@@ -65,10 +69,23 @@ def sync_directories():
                 elif line.startswith("Number of deleted files:"):
                     deleted_count = line.split(":")[1].strip().split()[0]
             
-            msg = f"Sync completed: {files_count} files processed, {created_count} created, {deleted_count} deleted."
-            send_sms(message=msg, to=os.environ.get("TO_PHONE_NUMBER"), mgs=os.environ.get("MGS"))
+            # Check if there were any changes
+            has_changes = (created_count != "0" and created_count != "unknown") or (deleted_count != "0" and deleted_count != "unknown")
             
+            msg = f"Sync completed: {files_count} files processed, {created_count} created, {deleted_count} deleted."
             log_message(msg)
+            
+            # Only send SMS if it's an initial sync or if there were changes
+            if is_initial_sync or has_changes:
+                if is_initial_sync:
+                    sms_msg = f"INITIAL {msg}"
+                else:
+                    sms_msg = f"RESYNC {msg}"
+                
+                send_sms(message=sms_msg, to=os.environ.get("TO_PHONE_NUMBER"), mgs=os.environ.get("MGS"))
+                log_message(f"SMS notification sent: {sms_msg}")
+            else:
+                log_message("No changes detected in resync, SMS notification skipped")
         else:
             log_message(f"Error: Sync failed with exit code {result.returncode}")
             log_message("Check sync.log for details")
@@ -77,6 +94,17 @@ def sync_directories():
 
 def main():
     """Main function to execute the script."""
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Sync directories using rsync')
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--initial', action='store_true', help='Initial sync when drive is first mounted')
+    group.add_argument('--resync', action='store_true', help='Resync after drive has been mounted for a while')
+    parser.add_argument('--message', help='Optional message to log')
+    args = parser.parse_args()
+    
+    # Determine if this is an initial sync or a resync
+    is_initial_sync = not args.resync  # Default to initial sync if not specified as resync
+    
     # Ensure the log file exists
     try:
         open(LOG_FILE, "a").close()
@@ -84,18 +112,21 @@ def main():
         print(f"Error: Cannot create log file at {LOG_FILE}. {str(e)}")
         sys.exit(1)
 
-    log_message("Script started")
+    if args.message:
+        log_message(args.message)
+    
+    log_message(f"Script started - {'INITIAL SYNC' if is_initial_sync else 'RESYNC'}")
             
     # Check if the destination directory exists
     if os.path.isdir(DEST_DIR):
-        sync_directories()
+        sync_directories(is_initial_sync)
         return
     else:
         # Try to create the destination directory
         try:
             os.makedirs(DEST_DIR, exist_ok=True)
             log_message(f"Created destination directory {DEST_DIR}")
-            sync_directories()
+            sync_directories(is_initial_sync)
             return
         except Exception as e:
             log_message(f"Error: Could not create destination directory {DEST_DIR}. {str(e)}")

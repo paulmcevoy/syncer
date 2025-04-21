@@ -36,8 +36,14 @@ graph TD
 3. When the drive is detected, it runs the syncer.py script to:
    - Sync data from the source directory to the destination directory using rsync
    - Log all operations to sync.log
-   - Send an SMS notification with the sync results
-4. The system waits for the drive to be unmounted before resuming monitoring
+   - Send an SMS notification with the initial sync results
+4. If the drive remains mounted, the system will:
+   - Wait for 10 minutes after the last sync completes
+   - Run another sync operation to check for any new changes
+   - Send an SMS notification ONLY if new changes are detected
+   - Skip SMS notification if no changes were made since the last sync
+   - Continue this process as long as the drive remains mounted
+5. When the drive is unmounted, the system resumes monitoring for the next mount
 
 ## Configuration
 

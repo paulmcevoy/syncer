@@ -10,6 +10,7 @@ SCRIPT_DIR="$PWD/syncer"
 ENV_FILE="$SCRIPT_DIR/.env"
 LOG_FILE="$SCRIPT_DIR/sync.log"
 CHECK_INTERVAL=5  # seconds
+RESYNC_INTERVAL=600  # 1 minute in seconds
 
 # Function to log messages
 log_message() {
@@ -47,10 +48,18 @@ is_drive_mounted() {
 
 # Function to run the Python logger
 run_logger() {
-    log_message "Drive detected at $MOUNT_POINT, running logger script"
+    local sync_type=$1  # "initial" or "resync"
+    
+    if [ "$sync_type" = "initial" ]; then
+        log_message "Drive detected at $MOUNT_POINT, running INITIAL sync"
+        sync_param="--initial"
+    else
+        log_message "Drive still mounted, running RESYNC"
+        sync_param="--resync"
+    fi
     
     if [ -x "$PYTHON_EXEC" ] && [ -f "$LOGGER_SCRIPT" ]; then
-        "$PYTHON_EXEC" "$LOGGER_SCRIPT" --message "External drive mounted at $MOUNT_POINT"
+        "$PYTHON_EXEC" "$LOGGER_SCRIPT" $sync_param --message "External drive mounted at $MOUNT_POINT"
         if [ $? -eq 0 ]; then
             log_message "Logger script executed successfully"
         else
@@ -66,22 +75,38 @@ run_logger() {
 # Main monitoring loop
 log_message "Drive monitor started"
 drive_was_mounted=false
+last_sync_time=0
 
 # Handle termination signals
 trap 'log_message "Drive monitor stopping"; exit 0' TERM INT
 
 # Simple monitoring loop
 while true; do
+    current_time=$(date +%s)
+    
     if is_drive_mounted; then
         if [ "$drive_was_mounted" = false ]; then
-            run_logger
+            # Initial sync when drive is first mounted
+            run_logger "initial"
+            last_sync_time=$(date +%s)
             drive_was_mounted=true
-            log_message "Waiting for drive to be unmounted"
+            log_message "Drive mounted, initial sync completed at $(date)"
+        else
+            # Check if it's time for a resync (1 minute since last sync)
+            time_since_last_sync=$((current_time - last_sync_time))
+            
+            if [ $time_since_last_sync -ge $RESYNC_INTERVAL ]; then
+                log_message "Drive still mounted after $time_since_last_sync seconds, running resync"
+                run_logger "resync"
+                last_sync_time=$(date +%s)
+                log_message "Resync completed at $(date)"
+            fi
         fi
     else
         if [ "$drive_was_mounted" = true ]; then
             log_message "Drive unmounted, resuming monitoring"
             drive_was_mounted=false
+            last_sync_time=0
         fi
     fi
     
