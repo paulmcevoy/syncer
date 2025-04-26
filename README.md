@@ -1,165 +1,195 @@
-   # External Drive Sync System
+# Syncer
 
-This system automatically detects when an external drive is mounted at the configured mount point and runs a sync operation using rsync. It logs all activities to a single log file.
+A modular file synchronization system with optional Tidal music download integration and SMS notification capabilities. Designed to sync files only when necessary - when a drive is mounted or when new Tidal files are downloaded.
 
-## Architecture
+## Overview
 
-```mermaid
-graph TD
-    A[External Drive] -->|Mounted at| B[Mount Point]
-    B -->|Detected by| C[drive_monitor.sh]
-    C -->|Reads config from| D[.env file]
-    C -->|Executes| E[syncer.py]
-    E -->|Syncs data using| F[rsync]
-    E -->|Sends notification via| G[Twilio SMS]
-    C -->|Logs to| H[sync.log]
-    E -->|Logs to| H
-    I[systemd service] -->|Manages| C
-    J[install_drive_monitor.sh] -->|Sets up| I
-    J -->|Creates| K[Python venv]
-    K -->|Used by| E
-```
+This system provides a flexible way to synchronize files between directories, with optional components for downloading music from Tidal and sending SMS notifications. It's designed to be modular, allowing you to install only the components you need.
 
-## Components
+## Features
 
-- **drive_monitor.sh**: Bash script that monitors `/proc/mounts` for the external drive
-- **syncer.py**: Python script that performs the sync operation using rsync
-- **drive-monitor.service**: Systemd user service configuration
-- **install_drive_monitor.sh**: Installation script that sets up the service and Python environment
-- **.env**: Configuration file containing environment variables
-- **sync.log**: Single log file for all system events
+- **Core Synchronization**: Sync files between directories using rsync with filtered logs showing only audio files
+- **Tidal Integration**: Download music from Tidal and automatically sync it
+- **SMS Notifications**: Get notified only when changes occur during sync or when files are downloaded
+- **Drive Monitoring**: Automatically detect and sync when drives are connected (one-time sync, no periodic resyncs)
 
-## How It Works
+## Requirements
 
-1. The system runs as a systemd user service in the background
-2. It continuously monitors `/proc/mounts` for the presence of the external drive
-3. When the drive is detected, it runs the syncer.py script to:
-   - Sync data from the source directory to the destination directory using rsync
-   - Log all operations to sync.log
-   - Send an SMS notification with the initial sync results
-4. If the drive remains mounted, the system will:
-   - Wait for 10 minutes after the last sync completes
-   - Run another sync operation to check for any new changes
-   - Send an SMS notification ONLY if new changes are detected
-   - Skip SMS notification if no changes were made since the last sync
-   - Continue this process as long as the drive remains mounted
-5. When the drive is unmounted, the system resumes monitoring for the next mount
-
-## Configuration
-
-The system is configured through the `.env` file, which contains:
-
-```
-TWILIO_ACCOUNT_SID="your_twilio_sid"
-TWILIO_AUTH_TOKEN="your_twilio_token"
-SOURCE_DIR="/path/to/source/directory"
-DEST_DIR="/path/to/destination/directory"
-MOUNT_POINT="/media/user/drive"
-TO_PHONE_NUMBER="+1234567890"
-MGS="your_twilio_messaging_service_sid"
-```
+- Python 3.6+
+- pip3
+- rsync
+- Twilio account (for SMS notifications)
+- Tidal account (for Tidal downloads)
 
 ## Installation
 
-1. Make the installation script executable:
-   ```bash
-   chmod +x syncer/install_drive_monitor.sh
+1. Clone this repository:
+   ```
+   git clone https://github.com/yourusername/syncer.git
+   cd syncer
    ```
 
 2. Run the installation script:
-   ```bash
-   ./syncer/install_drive_monitor.sh
+   ```
+   ./install.sh
    ```
 
-3. The script will:
-   - Set up a Python virtual environment (if it doesn't exist)
-   - Install required Python packages
-   - Make all scripts executable
-   - Create the initial log file
-   - Install the systemd service for your user
-   - Enable and start the service
+3. Follow the prompts to select which components to install and configure the system.
 
-## Usage
-
-The service runs automatically in the background. When you connect your external drive at the configured mount point, the system will:
-
-1. Detect the mount
-2. Run the sync operation using rsync
-3. Log all activities to sync.log
-4. Send an SMS notification with the sync results
-
-## Checking Status
-
-- Check service status:
-  ```bash
-  systemctl --user status drive-monitor.service
-  ```
-
-- View logs:
-  ```bash
-  cat syncer/sync.log
-  ```
-
-## Stopping or Disabling
-
-- Stop the service:
-  ```bash
-  systemctl --user stop drive-monitor.service
-  ```
-
-- Disable the service (won't start on boot):
-  ```bash
-  systemctl --user disable drive-monitor.service
-  ```
-
-## Troubleshooting
-
-If the system isn't working as expected:
-
-1. Check the service status:
-   ```bash
-   systemctl --user status drive-monitor.service
+4. Activate the virtual environment when working with the system:
+   ```
+   source ./activate_venv.sh
    ```
 
-4. Review the logs:
-   ```bash
-   cat syncer/sync.log
-   ```
+## Components
 
-5. Ensure the mount point is correct:
-   ```bash
-   grep "your_mount_point" /proc/mounts
-   ```
+### Core Module (syncer.py)
 
-6. Verify the Python executable exists:
-   ```bash
-   ls -la syncer/.venv/bin/python
-   ```
+The core synchronization module that handles file syncing using rsync.
 
-## Advanced Usage
-
-### Manual Sync
-
-You can manually run the sync operation by executing:
-
-```bash
-syncer/.venv/bin/python syncer/syncer.py
+Usage:
+```
+./syncer.py --initial  # Initial sync when drive is first mounted
+./syncer.py --resync   # Resync after drive has been mounted for a while
 ```
 
-### Updating Configuration
+### SMS Module (send_sms.py)
 
-If you update the `.env` file, you need to restart the service for changes to take effect:
+Handles SMS notifications about sync and download events.
 
-```bash
-systemctl --user restart drive-monitor.service
+Usage:
+```
+./send_sms.py "Test message"  # Send a test message
 ```
 
-### Reinstalling the Service
+### Tidal Module (tidal.py)
 
-If you make changes to the scripts or service configuration, you can reinstall the service:
+Downloads music from Tidal and triggers syncs after successful downloads.
 
-```bash
-./syncer/install_drive_monitor.sh
+Usage:
+```
+./tidal.py <tidal_url>  # Download from Tidal URL
 ```
 
-The installation script is designed to preserve your existing Python virtual environment while updating the service configuration.
+### Drive Monitor (drive_monitor.sh)
+
+Monitors for drive connections and triggers syncs.
+
+Usage:
+```
+./drive_monitor.sh  # Start monitoring (or use the systemd service)
+```
+
+## Virtual Environment
+
+The system uses a Python virtual environment to isolate its dependencies from the system Python installation. The installation script creates this environment automatically in the `.venv` directory.
+
+- To activate the virtual environment: `source ./activate_venv.sh` or `source .venv/bin/activate`
+- To deactivate when finished: `deactivate`
+
+All scripts are configured to use the Python interpreter from the virtual environment automatically.
+
+If a virtual environment already exists, the installation script will use it instead of creating a new one.
+
+## Configuration
+
+The system is configured using environment variables in a `.env` file. The installation process creates a template `.env` file that you must edit before using the system.
+
+### Required Configuration
+
+You must set these values in your `.env` file:
+
+```
+SOURCE_DIR=/path/to/source                # Directory containing files to sync
+DEST_DIR=/path/to/destination             # Directory to sync files to
+MOUNT_POINT=/path/to/mount                # Mount point for external drive
+```
+
+### Optional Configuration
+
+Depending on which components you installed, you may need to set additional variables:
+
+- For SMS notifications:
+  ```
+  TO_PHONE_NUMBER=+1234567890              # Your phone number to receive SMS notifications
+  MGS=your_twilio_message_service_id       # Twilio message service ID
+  TWILIO_ACCOUNT_SID=your_twilio_account_sid  # Twilio account SID
+  TWILIO_AUTH_TOKEN=your_twilio_auth_token    # Twilio auth token
+  ```
+
+- For Tidal downloads:
+  ```
+  TIDAL_QUALITY=LOSSLESS                   # Options: LOSSLESS, HIGH, LOW
+  ```
+
+A complete example configuration is provided in `.env.example`.
+
+## Logs
+
+All components log to a single log file specified in the `.env` file. Each log entry includes a timestamp and the component name.
+
+## Systemd Service
+
+The drive monitor can be installed as a user systemd service to run automatically at login (no sudo required):
+
+```
+./install_drive_monitor.sh
+```
+
+This installs the service to your user's systemd configuration, which means:
+- No root privileges required
+- Service starts automatically when you log in
+- Service continues running even if you log out (thanks to lingering)
+- Logs are accessible with `journalctl --user -u drive-monitor.service`
+
+### Sync Behavior
+
+The system is designed to sync files only in two specific situations:
+1. When a drive is first mounted (detected by the drive monitor)
+2. When the Tidal script successfully downloads new files
+
+SMS notifications are only sent when:
+- New files are downloaded from Tidal
+- Changes are detected during a sync operation (files created or deleted)
+
+This minimizes unnecessary sync operations and notifications.
+
+### File Counting Explanation
+
+The system now uses a more accurate approach to count downloaded files:
+
+- **Tidal**: Scans the download directory before and after the download to count actual files created
+  - Provides a detailed breakdown: "6 .flac files (audio tracks), 6 .lrc files (lyrics files)"
+  - Counts files by examining their extensions, not by parsing command output
+  - Can be configured to use a specific download directory with the TIDAL_DOWNLOAD_DIR environment variable
+
+- **Rsync**: Counts all files created during synchronization, including:
+  - Audio files (FLAC, MP3, etc.)
+  - Lyrics files (.lrc files)
+  - Directories created
+
+Both components now provide detailed breakdowns in the same format:
+```
+X .flac files (audio tracks)
+Y .lrc files (lyrics files)
+```
+
+This makes it easier to understand exactly what files are being processed at each stage.
+
+### Log Filtering
+
+The rsync logs are filtered to show only relevant information:
+- Audio files (FLAC, MP3, WAV, AAC, M4A, OGG) are included in the logs
+- LRC (lyrics) files are excluded from the logs
+- Summary information (file counts, sizes) is preserved
+
+This makes the logs more focused on the important content being synchronized.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- [Twilio](https://www.twilio.com/) for SMS API
+- [tidal-dl-ng](https://github.com/yaronzz/Tidal-Media-Downloader) for Tidal downloading

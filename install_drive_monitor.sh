@@ -1,117 +1,113 @@
 #!/bin/bash
-#
-# Installation Script for Drive Monitor
-#
-# This script sets up the drive monitor service for the current user.
 
-# Configuration
-SCRIPT_DIR="$PWD"
-SERVICE_NAME="drive-monitor"
-SERVICE_FILE="$SCRIPT_DIR/$SERVICE_NAME.service"
-MONITOR_SCRIPT="$SCRIPT_DIR/drive_monitor.sh"
-LOGGER_SCRIPT="$SCRIPT_DIR/drive_logger.py"
-LOG_FILE="$SCRIPT_DIR/sync.log"
-SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
-VENV_DIR="$SCRIPT_DIR/.venv"
-REQUIREMENTS_FILE="$SCRIPT_DIR/requirements.txt"
+# Script to install the drive monitor service as a user service (no sudo required)
 
-# Function to display status messages
-echo_status() {
-    echo "===> $1"
+# Colors for output
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+# Function to print colored messages
+print_message() {
+    echo -e "${GREEN}[INFO]${NC} $1"
 }
 
-# Check if Python virtual environment exists
-if [ -d "$VENV_DIR" ]; then
-    echo_status "Virtual environment already exists, skipping Python setup"
-else
-    # Set up Python virtual environment
-    echo_status "Setting up Python virtual environment"
+print_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Get the script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SERVICE_FILE="${SCRIPT_DIR}/drive-monitor.service"
+MONITOR_SCRIPT="${SCRIPT_DIR}/drive_monitor.sh"
+VENV_DIR="${SCRIPT_DIR}/.venv"
+
+# Check if virtual environment exists
+if [ ! -d "${VENV_DIR}" ]; then
+    print_warning "Virtual environment not found at ${VENV_DIR}"
+    print_warning "The drive monitor may not work correctly without the virtual environment."
+    read -p "Continue anyway? (y/n, default: n): " CONTINUE
+    CONTINUE=${CONTINUE:-n}
     
-    # Create new virtual environment
-    echo_status "Creating new virtual environment"
-    python3 -m venv "$VENV_DIR"
-    
-    # Activate virtual environment and install requirements
-    echo_status "Installing dependencies from requirements.txt"
-    source "$VENV_DIR/bin/activate"
-    pip install --upgrade pip
-    if [ -f "$REQUIREMENTS_FILE" ]; then
-        pip install -r "$REQUIREMENTS_FILE"
-    else
-        echo_status "WARNING: requirements.txt not found at $REQUIREMENTS_FILE"
+    if [ "$CONTINUE" != "y" ]; then
+        print_message "Installation cancelled. Please run the main installation script first."
+        exit 1
     fi
-    deactivate
 fi
 
-# Make scripts executable
-echo_status "Making scripts executable"
-chmod +x "$MONITOR_SCRIPT" "$LOGGER_SCRIPT"
+# Check if the service file exists
+if [ ! -f "$SERVICE_FILE" ]; then
+    print_error "Service file not found: $SERVICE_FILE"
+    exit 1
+fi
 
-# Create initial log file if it doesn't exist
-echo_status "Creating initial log file"
-if [ ! -f "$LOG_FILE" ]; then
-    touch "$LOG_FILE"
-    echo "$(date "+%Y-%m-%d %H:%M:%S"): Drive monitor service installed" > "$LOG_FILE"
+# Check if the monitor script exists
+if [ ! -f "$MONITOR_SCRIPT" ]; then
+    print_error "Monitor script not found: $MONITOR_SCRIPT"
+    exit 1
+fi
+
+# Make sure the monitor script is executable
+chmod +x "$MONITOR_SCRIPT"
+print_message "Made monitor script executable"
+
+# Create user systemd directory if it doesn't exist
+USER_SYSTEMD_DIR="${HOME}/.config/systemd/user"
+mkdir -p "$USER_SYSTEMD_DIR"
+print_message "Created user systemd directory: $USER_SYSTEMD_DIR"
+
+# Create a temporary service file with the correct paths
+TMP_SERVICE_FILE=$(mktemp)
+cat "$SERVICE_FILE" | \
+    sed "s|User=paul||g" | \
+    sed "s|WorkingDirectory=/home/paul/syncer|WorkingDirectory=$SCRIPT_DIR|g" | \
+    sed "s|ExecStart=/bin/bash /home/paul/syncer/drive_monitor.sh|ExecStart=/bin/bash $MONITOR_SCRIPT|g" | \
+    sed "s|Environment=|Environment=\"PATH=$VENV_DIR/bin:\$PATH\"|g" \
+    > "$TMP_SERVICE_FILE"
+
+# Add environment path if not present
+if ! grep -q "Environment=" "$TMP_SERVICE_FILE"; then
+    # Find the [Service] section and add the Environment line after it
+    sed -i '/\[Service\]/a Environment="PATH='"$VENV_DIR"'/bin:$PATH"' "$TMP_SERVICE_FILE"
+fi
+
+# Remove the [Install] section and WantedBy=multi-user.target
+# Replace with user-specific target
+sed -i 's|WantedBy=multi-user.target|WantedBy=default.target|g' "$TMP_SERVICE_FILE"
+
+# Copy the service file to the user systemd directory
+cp "$TMP_SERVICE_FILE" "${USER_SYSTEMD_DIR}/drive-monitor.service"
+rm "$TMP_SERVICE_FILE"
+print_message "Installed service file to ${USER_SYSTEMD_DIR}/drive-monitor.service"
+
+# Reload systemd to recognize the new service
+systemctl --user daemon-reload
+print_message "Reloaded user systemd daemon"
+
+# Enable the service to start on login
+systemctl --user enable drive-monitor.service
+print_message "Enabled drive-monitor service to start on login"
+
+# Enable lingering to allow the service to run without being logged in
+loginctl enable-linger "$(whoami)"
+print_message "Enabled lingering to allow service to run without being logged in"
+
+# Start the service
+systemctl --user start drive-monitor.service
+print_message "Started drive-monitor service"
+
+# Check the status
+if systemctl --user is-active --quiet drive-monitor.service; then
+    print_message "Drive monitor service is running"
 else
-    echo "$(date "+%Y-%m-%d %H:%M:%S"): Drive monitor service reinstalled" >> "$LOG_FILE"
+    print_warning "Drive monitor service failed to start. Check status with: systemctl --user status drive-monitor.service"
 fi
 
-# Create systemd user directory if it doesn't exist
-echo_status "Setting up systemd user directory"
-mkdir -p "$SYSTEMD_USER_DIR"
-
-# Update and install service file to systemd user directory
-echo_status "Updating service file with current working directory"
-# Read the service file, replace <MAKE_PWD> with current directory, and write to systemd user directory
-sed "s|<MAKE_PWD>|$PWD|g" "$SERVICE_FILE" > "$SYSTEMD_USER_DIR/$SERVICE_NAME.service"
-echo_status "Service file installed with path: $PWD"
-
-# Reload systemd user daemon
-echo_status "Reloading systemd user daemon"
-systemctl --user daemon-reload
-
-# Completely stop and disable the service if it exists
-echo_status "Stopping and disabling any existing service"
-systemctl --user stop "$SERVICE_NAME.service" 2>/dev/null
-systemctl --user disable "$SERVICE_NAME.service" 2>/dev/null
-sleep 2  # Give it time to fully stop
-
-# Kill any running instances of the drive_monitor.sh script (but not this install script)
-echo_status "Killing any running instances of drive_monitor.sh"
-ps aux | grep "[d]rive_monitor.sh" | grep -v "install_drive_monitor.sh" | awk '{print $2}' | xargs -r kill 2>/dev/null
-sleep 1
-
-# Clean up any existing PID files
-echo_status "Cleaning up any existing PID files"
-PID_FILE="$SCRIPT_DIR/drive_monitor.pid"
-if [ -f "$PID_FILE" ]; then
-    echo_status "Removing stale PID file: $PID_FILE"
-    rm -f "$PID_FILE"
-fi
-
-# Also check for any old PID file in /tmp
-OLD_PID_FILE="/tmp/drive_monitor.pid"
-if [ -f "$OLD_PID_FILE" ]; then
-    echo_status "Removing old PID file: $OLD_PID_FILE"
-    rm -f "$OLD_PID_FILE"
-fi
-# Reload systemd to ensure it picks up any changes
-echo_status "Reloading systemd"
-systemctl --user daemon-reload
-
-# Final steps: Enable and restart the service
-echo_status "FINAL STEP: Enabling the drive-monitor.service"
-systemctl --user enable "$SERVICE_NAME.service"
-
-echo_status "FINAL STEP: Restarting the drive-monitor.service"
-systemctl --user restart "$SERVICE_NAME.service"
-
-# Wait a moment and check status
-sleep 2
-echo_status "Service status:"
-systemctl --user status "$SERVICE_NAME.service"
-
-echo_status "Installation complete!"
-echo_status "You can check the service status with: systemctl --user status $SERVICE_NAME.service"
-echo_status "You can view logs with: cat $LOG_FILE"
-echo_status "You can view logs with: cat $LOG_FILE"
+print_message "Installation complete!"
+print_message "You can check the service status with: systemctl --user status drive-monitor.service"
+print_message "You can view logs with: journalctl --user -u drive-monitor.service"

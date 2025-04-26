@@ -1,3 +1,23 @@
+# Virtual environment
+.venv/
+activate_venv.sh
+
+# Configuration
+.env
+.env.new
+
+# Logs
+*.log
+
+# Generated wrapper scripts
+*_wrapper.sh
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+
 # Byte-compiled files
 __pycache__/
 *.py[cod]

@@ -1,114 +1,86 @@
 #!/bin/bash
-#
-# Drive Monitor Script - Simplified Version
-#
-# This script monitors /proc/mounts for the presence of an external drive
-# at the specified mount point and calls a Python script when detected.
 
-# Configuration - Use absolute paths to avoid any path-related issues
-SCRIPT_DIR="$PWD/syncer"
-ENV_FILE="$SCRIPT_DIR/.env"
-LOG_FILE="$SCRIPT_DIR/sync.log"
-CHECK_INTERVAL=5  # seconds
-RESYNC_INTERVAL=600  # 1 minute in seconds
+# Drive Monitor Script
+# This script monitors for drive connections and triggers syncs
 
-# Function to log messages
-log_message() {
-    local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
-    echo "$timestamp: $1" >> "$LOG_FILE"
-    echo "$timestamp: $1"  # Also print to stdout for debugging
-}
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR="${SCRIPT_DIR}/.venv"
+PYTHON_BIN="${VENV_DIR}/bin/python"
 
-# Create log file if it doesn't exist
-touch "$LOG_FILE"
-log_message "Drive monitor starting"
-
-# Read MOUNT_POINT from .env file
-if [ -f "$ENV_FILE" ]; then
-    # Extract MOUNT_POINT value from .env file
-    MOUNT_POINT=$(grep "^MOUNT_POINT" "$ENV_FILE" | sed 's/MOUNT_POINT *= *//;s/^"//;s/"$//' | tr -d '"')
-    if [ -z "$MOUNT_POINT" ]; then
-        log_message "Error: MOUNT_POINT not found in $ENV_FILE"
-        exit 1
-    fi
-    log_message "Using mount point: $MOUNT_POINT"
-else
-    log_message "Error: .env file not found at $ENV_FILE"
+# Check if virtual environment exists
+if [ ! -f "${PYTHON_BIN}" ]; then
+    echo "Error: Virtual environment not found at ${VENV_DIR}"
+    echo "Please run the installation script first."
     exit 1
 fi
 
-PYTHON_EXEC="$SCRIPT_DIR/.venv/bin/python"
-LOGGER_SCRIPT="$SCRIPT_DIR/syncer.py"
+# Load environment variables from .env file
+if [ -f .env ]; then
+    export $(grep -v '^#' .env | xargs)
+else
+    echo "Error: .env file not found"
+    exit 1
+fi
+
+# Configuration
+SYNCER_SCRIPT="${SCRIPT_DIR}/syncer.py"
+LOG_FILE="${LOG_FILE:-${SCRIPT_DIR}/sync.log}"
+CHECK_INTERVAL=60  # Check every 60 seconds
+
+# Function to log messages
+log_message() {
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    local message="$timestamp - DRIVE_MONITOR - $1"
+    echo "$message"
+    echo "$message" >> "$LOG_FILE"
+}
 
 # Function to check if drive is mounted
 is_drive_mounted() {
-    grep -q " $MOUNT_POINT " /proc/mounts
-    return $?
-}
-
-# Function to run the Python logger
-run_logger() {
-    local sync_type=$1  # "initial" or "resync"
-    
-    if [ "$sync_type" = "initial" ]; then
-        log_message "Drive detected at $MOUNT_POINT, running INITIAL sync"
-        sync_param="--initial"
+    if [ -d "$MOUNT_POINT" ] && [ -d "$DEST_DIR" ]; then
+        return 0  # True
     else
-        log_message "Drive still mounted, running RESYNC"
-        sync_param="--resync"
-    fi
-    
-    if [ -x "$PYTHON_EXEC" ] && [ -f "$LOGGER_SCRIPT" ]; then
-        "$PYTHON_EXEC" "$LOGGER_SCRIPT" $sync_param --message "External drive mounted at $MOUNT_POINT"
-        if [ $? -eq 0 ]; then
-            log_message "Logger script executed successfully"
-        else
-            log_message "ERROR: Logger script failed with exit code $?"
-        fi
-    else
-        log_message "ERROR: Python executable or logger script not found"
-        log_message "Python path: $PYTHON_EXEC"
-        log_message "Logger script: $LOGGER_SCRIPT"
+        return 1  # False
     fi
 }
 
-# Main monitoring loop
+# Function to run the sync
+run_sync() {
+    local initial=$1
+    local message="$2"
+    
+    if [ "$initial" = true ]; then
+        log_message "Running initial sync..."
+        "${PYTHON_BIN}" "$SYNCER_SCRIPT" --initial --message "$message"
+    else
+        log_message "Running resync..."
+        "${PYTHON_BIN}" "$SYNCER_SCRIPT" --resync --message "$message"
+    fi
+}
+
+# Main loop
 log_message "Drive monitor started"
-drive_was_mounted=false
-last_sync_time=0
 
-# Handle termination signals
-trap 'log_message "Drive monitor stopping"; exit 0' TERM INT
+# Track if we've done an initial sync
+INITIAL_SYNC_DONE=false
 
-# Simple monitoring loop
 while true; do
-    current_time=$(date +%s)
-    
     if is_drive_mounted; then
-        if [ "$drive_was_mounted" = false ]; then
-            # Initial sync when drive is first mounted
-            run_logger "initial"
-            last_sync_time=$(date +%s)
-            drive_was_mounted=true
-            log_message "Drive mounted, initial sync completed at $(date)"
-        else
-            # Check if it's time for a resync (1 minute since last sync)
-            time_since_last_sync=$((current_time - last_sync_time))
-            
-            if [ $time_since_last_sync -ge $RESYNC_INTERVAL ]; then
-                log_message "Drive still mounted after $time_since_last_sync seconds, running resync"
-                run_logger "resync"
-                last_sync_time=$(date +%s)
-                log_message "Resync completed at $(date)"
-            fi
+        if [ "$INITIAL_SYNC_DONE" = false ]; then
+            log_message "Drive detected at $MOUNT_POINT"
+            run_sync true "Drive detected and mounted"
+            INITIAL_SYNC_DONE=true
+            log_message "Initial sync completed. Monitoring for drive disconnection."
         fi
     else
-        if [ "$drive_was_mounted" = true ]; then
-            log_message "Drive unmounted, resuming monitoring"
-            drive_was_mounted=false
-            last_sync_time=0
+        if [ "$INITIAL_SYNC_DONE" = true ]; then
+            log_message "Drive disconnected from $MOUNT_POINT"
+            INITIAL_SYNC_DONE=false
+            log_message "Waiting for drive to be reconnected."
         fi
     fi
     
+    # Wait before checking again
     sleep $CHECK_INTERVAL
 done

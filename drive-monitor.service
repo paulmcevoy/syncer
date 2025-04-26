@@ -1,13 +1,16 @@
 [Unit]
-Description=External Drive Mount Monitor
+Description=Drive Monitor Service
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/bin/bash <MAKE_PWD>/drive_monitor.sh
-SupplementaryGroups=
+WorkingDirectory=%h/syncer
+ExecStart=/bin/bash %h/syncer/drive_monitor.sh
+Environment="PATH=%h/syncer/.venv/bin:$PATH"
 Restart=on-failure
-RestartSec=30
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=default.target
