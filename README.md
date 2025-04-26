@@ -41,6 +41,11 @@ This system provides a flexible way to synchronize files between directories, wi
    source ./activate_venv.sh
    ```
 
+5. To clean up all files generated during installation (for a fresh start):
+   ```
+   ./cleanup.sh
+   ```
+
 ## Components
 
 ### Core Module (syncer.py)
@@ -157,7 +162,9 @@ The system now uses a more accurate approach to count downloaded files:
 - **Tidal**: Scans the download directory before and after the download to count actual files created
   - Provides a detailed breakdown: "6 .flac files (audio tracks), 6 .lrc files (lyrics files)"
   - Counts files by examining their extensions, not by parsing command output
-  - Can be configured to use a specific download directory with the TIDAL_DOWNLOAD_DIR environment variable
+  - Uses SOURCE_DIR as the download directory if available
+  - Falls back to TIDAL_DOWNLOAD_DIR if SOURCE_DIR is not set
+  - Creates a local "downloads" directory as a last resort
 
 - **Rsync**: Counts all files created during synchronization, including:
   - Audio files (FLAC, MP3, etc.)
