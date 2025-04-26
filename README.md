@@ -76,14 +76,23 @@ Usage:
 ./tidal.py <tidal_url>  # Download from Tidal URL
 ```
 
-### Drive Monitor (drive_monitor.sh)
+### Drive Monitor Options
 
-Monitors for drive connections and triggers syncs.
+You have two options for automatically triggering syncs when your drive is connected:
 
-Usage:
-```
-./drive_monitor.sh  # Start monitoring (or use the systemd service)
-```
+**1. Systemd Path Monitoring (Recommended):**
+
+*   Uses systemd's built-in event detection (no polling).
+*   Triggers sync immediately when the drive is mounted.
+*   Requires no root permissions (uses user systemd units).
+*   **Setup:** This is now done automatically during the `./install.sh` process. The install script creates and enables the necessary systemd units (`drive-mount-watcher.path` and `drive-sync.service`) after validating your `.env` file.
+
+**2. Polling Script (Removed):**
+
+*   Checks if the drive is mounted every 60 seconds (by default).
+*   Less efficient and less responsive than path monitoring.
+*   Can be run manually (`./drive_monitor.sh`) or via the old systemd service (which is now automatically installed if this component is selected during `install.sh`).
+*   **Note:** It's recommended to use the systemd path monitoring approach instead. If you set up the path watcher, you don't need to run `drive_monitor.sh`.
 
 ## Virtual Environment
 
@@ -133,15 +142,21 @@ A complete example configuration is provided in `.env.example`.
 
 All components log to a single log file specified in the `.env` file. Each log entry includes a timestamp and the component name.
 
-## Systemd Service
+## Systemd Integration
 
-The drive monitor is automatically installed as a user systemd service when you select the drive monitor component during installation. No sudo privileges are required.
+**Systemd Path Monitoring (Automatic Setup):**
 
-The service has the following characteristics:
-- No root privileges required
-- Service starts automatically when you log in
-- Service continues running even if you log out (thanks to lingering)
-- Logs are accessible with `journalctl --user -u drive-monitor.service`
+The `./install.sh` script automatically creates user-level systemd units (`drive-mount-watcher.path` and `drive-sync.service`) during installation. These units will:
+
+*   Monitor for the existence of the `MOUNT_POINT` specified in your `.env` file.
+*   Automatically run `syncer.py --initial` when the drive is mounted.
+*   Start automatically on user login.
+*   Run without root privileges.
+*   Log output via `journalctl --user -u drive-sync.service`.
+
+**Legacy Method (Polling Service - Removed):**
+
+The old polling script (`drive_monitor.sh`) and its associated systemd service have been removed in favor of the more efficient path monitoring method.
 
 ### Sync Behavior
 

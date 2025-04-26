@@ -42,9 +42,53 @@ if ! command -v rsync &> /dev/null; then
     print_warning "rsync is required but not installed. Please install rsync before using the sync functionality."
 fi
 
-# Function to create .env file template
-create_env_file() {
-    print_message "Creating .env file template..."
+# --- .env File Validation ---
+ENV_FILE="${SCRIPT_DIR}/.env"
+print_message "Checking for pre-configured .env file at ${ENV_FILE}..."
+if [ ! -f "$ENV_FILE" ]; then
+    print_error ".env file not found."
+    print_error "Please copy .env.example to .env and configure it with your paths"
+    print_error "(SOURCE_DIR, DEST_DIR, MOUNT_POINT, LOG_FILE) before running this script."
+    exit 1
+fi
+
+print_message "Loading and validating configuration from ${ENV_FILE}..."
+# Temporarily disable unbound variable errors just for sourcing
+set +u
+# Source the .env file - use '.' to source in the current shell
+. "$ENV_FILE"
+# Re-enable unbound variable errors if it was set before
+# (This part is tricky, maybe better to just check variables directly)
+set -u # Assuming we want errors for unbound variables generally
+
+# Validate required variables
+REQUIRED_VARS=("SOURCE_DIR" "DEST_DIR" "MOUNT_POINT" "LOG_FILE")
+MISSING_VARS=()
+for var in "${REQUIRED_VARS[@]}"; do
+    # Use indirect expansion to check if the variable is set and non-empty
+    if [ -z "${!var}" ]; then
+        MISSING_VARS+=("$var")
+    fi
+done
+
+if [ ${#MISSING_VARS[@]} -ne 0 ]; then
+    print_error "The following required variables are not set or are empty in ${ENV_FILE}:"
+    for var in "${MISSING_VARS[@]}"; do
+        print_error "  - ${var}"
+    done
+    print_error "Please configure these variables in ${ENV_FILE} and try again."
+    exit 1
+fi
+print_message ".env file found and required variables are set."
+# --- End .env File Validation ---
+
+
+# Function to create .env file template (No longer needed as .env must exist)
+# create_env_file() { ... } # Removed
+
+# Create and activate virtual environment
+create_virtual_environment() {
+    # Check if virtual environment already exists
     
     # Set default log file in the current directory
     LOG_FILE="${SCRIPT_DIR}/sync.log"
@@ -129,15 +173,8 @@ install_tidal() {
     print_message "Tidal module installed successfully."
 }
 
-# Install drive monitor
-install_drive_monitor() {
-    print_message "Installing drive monitor..."
-    chmod +x "${SCRIPT_DIR}/drive_monitor.sh"
-    chmod +x "${SCRIPT_DIR}/install_drive_monitor.sh"
-    
-    print_message "Installing drive monitor service as a user service (no sudo required)..."
-    "${SCRIPT_DIR}/install_drive_monitor.sh"
-}
+# Install drive monitor (No longer needed - replaced by setup_mount_watcher.sh)
+# install_drive_monitor() { ... } # Removed
 
 # Create wrapper scripts that use the virtual environment
 create_wrapper_scripts() {
@@ -183,8 +220,7 @@ if [ "$INSTALL_CORE" = "y" ]; then
     read -p "Install Tidal module? (y/n, default: n): " INSTALL_TIDAL
     INSTALL_TIDAL=${INSTALL_TIDAL:-n}
     
-    read -p "Install drive monitor? (y/n, default: n): " INSTALL_DRIVE_MONITOR
-    INSTALL_DRIVE_MONITOR=${INSTALL_DRIVE_MONITOR:-n}
+    # Drive monitor setup is now standard, no need to ask
     
     # Create requirements.txt based on selections
     echo "python-dotenv" > requirements.txt
@@ -215,30 +251,96 @@ if [ "$INSTALL_CORE" = "y" ]; then
         install_tidal
     fi
     
-    if [ "$INSTALL_DRIVE_MONITOR" = "y" ]; then
-        install_drive_monitor
-    fi
+    # Drive monitor setup is now handled by setup_mount_watcher.sh below
     
-    # Create .env file template
-    create_env_file
+    # Create .env file template (No longer needed, user must provide .env)
+    # create_env_file # Removed
     
-    print_message "NOTE: You must edit the .env file with your configuration before using the system."
+    # print_message "NOTE: You must edit the .env file..." # Removed
     
     # Create wrapper scripts that use the virtual environment
     create_wrapper_scripts
     
+    # --- Setup Systemd Path Watcher ---
+    print_message "Setting up systemd path watcher for drive monitoring..."
+    
+    # Define systemd paths
+    USER_SYSTEMD_DIR="${HOME}/.config/systemd/user"
+    PATH_UNIT_FILE="${USER_SYSTEMD_DIR}/drive-mount-watcher.path"
+    SERVICE_UNIT_FILE="${USER_SYSTEMD_DIR}/drive-sync.service"
+    PYTHON_BIN="${VENV_DIR}/bin/python" # Ensure PYTHON_BIN is defined here
+    SYNC_SCRIPT="${SCRIPT_DIR}/syncer.py" # Ensure SYNC_SCRIPT is defined here
+    
+    # Create user systemd directory if it doesn't exist
+    print_message "Ensuring user systemd directory exists: ${USER_SYSTEMD_DIR}"
+    mkdir -p "$USER_SYSTEMD_DIR"
+    
+    # Create path unit file
+    print_message "Creating path unit file: ${PATH_UNIT_FILE}"
+    cat > "$PATH_UNIT_FILE" << EOF
+[Unit]
+Description=Watch for drive mount at ${MOUNT_POINT}
+Documentation=man:systemd.path(5)
+
+[Path]
+PathExists=${MOUNT_POINT}
+Unit=drive-sync.service
+
+[Install]
+WantedBy=default.target
+EOF
+
+    # Create service unit file
+    print_message "Creating service unit file: ${SERVICE_UNIT_FILE}"
+    cat > "$SERVICE_UNIT_FILE" << EOF
+[Unit]
+Description=Sync files when drive is mounted at ${MOUNT_POINT}
+After=drive-mount-watcher.path
+
+[Service]
+Type=oneshot
+# Execute the sync script with the --initial flag
+ExecStart=${PYTHON_BIN} ${SYNC_SCRIPT} --initial
+# Ensure the script runs with the correct environment, including the venv
+Environment="PATH=${VENV_DIR}/bin:\$PATH"
+# Set the working directory to where the scripts are located
+WorkingDirectory=${SCRIPT_DIR}
+# Log output to journald
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+EOF
+
+    # Enable and Start Units
+    print_message "Reloading systemd user daemon..."
+    systemctl --user daemon-reload
+    
+    print_message "Enabling the path unit to start on login..."
+    systemctl --user enable drive-mount-watcher.path
+    
+    print_message "Starting the path unit now..."
+    systemctl --user start drive-mount-watcher.path
+    
+    print_message "Systemd drive mount watcher setup complete!"
+    # --- End Systemd Path Watcher Setup ---
+    
     print_message "Installation completed successfully!"
-    print_message "You can now use the system with the following commands:"
+    print_message "Drive monitoring is active via systemd path units."
+    print_message "You can now use the system. Key commands:"
     print_message "  - Activate the virtual environment: source ./activate_venv.sh"
-    print_message "  - Core sync: ./syncer.py [--initial|--resync]"
+    print_message "  - Manual Sync: ./syncer_wrapper.sh [--initial|--resync]"
     
     if [ "$INSTALL_TIDAL" = "y" ]; then
-        print_message "  - Tidal download: ./tidal.py <tidal_url>"
+        print_message "  - Tidal Download: ./tidal_wrapper.sh <tidal_url>"
     fi
     
-    if [ "$INSTALL_DRIVE_MONITOR" = "y" ]; then
-        print_message "  - Drive monitor: ./drive_monitor.sh (or use the systemd service)"
+    if [ "$INSTALL_SMS" = "y" ]; then
+        print_message "  - Send Test SMS: ./send_sms_wrapper.sh \"Test message\""
     fi
+    print_message "  - Check systemd units: systemctl --user status drive-mount-watcher.path drive-sync.service"
+    print_message "  - View sync logs: journalctl --user -u drive-sync.service"
 else
     print_message "Installation cancelled."
 fi

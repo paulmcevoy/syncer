@@ -82,14 +82,41 @@ find "${SCRIPT_DIR}" -type f -name "*.pyc" -delete
 find "${SCRIPT_DIR}" -type f -name "*.pyo" -delete
 find "${SCRIPT_DIR}" -type f -name "*.pyd" -delete
 
-# Remove any systemd user service
+# Remove systemd user units created by setup_mount_watcher.sh
 USER_SYSTEMD_DIR="${HOME}/.config/systemd/user"
-if [ -f "${USER_SYSTEMD_DIR}/drive-monitor.service" ]; then
-    print_message "Removing systemd user service..."
-    systemctl --user stop drive-monitor.service 2>/dev/null
-    systemctl --user disable drive-monitor.service 2>/dev/null
-    rm "${USER_SYSTEMD_DIR}/drive-monitor.service"
-    systemctl --user daemon-reload
+PATH_UNIT_FILE="${USER_SYSTEMD_DIR}/drive-mount-watcher.path"
+SERVICE_UNIT_FILE="${USER_SYSTEMD_DIR}/drive-sync.service"
+
+# Stop and disable the path unit first
+if systemctl --user is-active --quiet drive-mount-watcher.path; then
+    print_message "Stopping systemd path unit..."
+    systemctl --user stop drive-mount-watcher.path
+fi
+if systemctl --user is-enabled --quiet drive-mount-watcher.path; then
+    print_message "Disabling systemd path unit..."
+    systemctl --user disable drive-mount-watcher.path
+fi
+
+# Stop the service unit just in case it's running independently (unlikely)
+if systemctl --user is-active --quiet drive-sync.service; then
+    print_message "Stopping systemd service unit..."
+    systemctl --user stop drive-sync.service
+fi
+
+# Remove the unit files
+if [ -f "$PATH_UNIT_FILE" ]; then
+    print_message "Removing systemd path unit file..."
+    rm "$PATH_UNIT_FILE"
+fi
+if [ -f "$SERVICE_UNIT_FILE" ]; then
+    print_message "Removing systemd service unit file..."
+    rm "$SERVICE_UNIT_FILE"
+fi
+
+# Reload systemd if files were removed
+if [ ! -f "$PATH_UNIT_FILE" ] || [ ! -f "$SERVICE_UNIT_FILE" ]; then
+     print_message "Reloading systemd user daemon..."
+     systemctl --user daemon-reload
 fi
 
 # Reset shebangs in Python files
