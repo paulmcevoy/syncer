@@ -135,16 +135,8 @@ install_drive_monitor() {
     chmod +x "${SCRIPT_DIR}/drive_monitor.sh"
     chmod +x "${SCRIPT_DIR}/install_drive_monitor.sh"
     
-    read -p "Do you want to install the drive monitor service now? (y/n, default: n): " INSTALL_SERVICE
-    INSTALL_SERVICE=${INSTALL_SERVICE:-n}
-    
-    if [ "$INSTALL_SERVICE" = "y" ]; then
-        print_message "Installing drive monitor service as a user service (no sudo required)..."
-        "${SCRIPT_DIR}/install_drive_monitor.sh"
-    else
-        print_message "Drive monitor script installed but service not installed."
-        print_message "You can install the service later with: ./install_drive_monitor.sh"
-    fi
+    print_message "Installing drive monitor service as a user service (no sudo required)..."
+    "${SCRIPT_DIR}/install_drive_monitor.sh"
 }
 
 # Create wrapper scripts that use the virtual environment

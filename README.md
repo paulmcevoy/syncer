@@ -130,13 +130,9 @@ All components log to a single log file specified in the `.env` file. Each log e
 
 ## Systemd Service
 
-The drive monitor can be installed as a user systemd service to run automatically at login (no sudo required):
+The drive monitor is automatically installed as a user systemd service when you select the drive monitor component during installation. No sudo privileges are required.
 
-```
-./install_drive_monitor.sh
-```
-
-This installs the service to your user's systemd configuration, which means:
+The service has the following characteristics:
 - No root privileges required
 - Service starts automatically when you log in
 - Service continues running even if you log out (thanks to lingering)

@@ -63,11 +63,10 @@ print_message "Created user systemd directory: $USER_SYSTEMD_DIR"
 
 # Create a temporary service file with the correct paths
 TMP_SERVICE_FILE=$(mktemp)
+
+# Replace the placeholder INSTALL_DIR with the actual script directory
 cat "$SERVICE_FILE" | \
-    sed "s|User=paul||g" | \
-    sed "s|WorkingDirectory=/home/paul/syncer|WorkingDirectory=$SCRIPT_DIR|g" | \
-    sed "s|ExecStart=/bin/bash /home/paul/syncer/drive_monitor.sh|ExecStart=/bin/bash $MONITOR_SCRIPT|g" | \
-    sed "s|Environment=|Environment=\"PATH=$VENV_DIR/bin:\$PATH\"|g" \
+    sed "s|INSTALL_DIR|$SCRIPT_DIR|g" \
     > "$TMP_SERVICE_FILE"
 
 # Add environment path if not present

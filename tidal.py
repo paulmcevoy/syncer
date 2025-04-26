@@ -111,8 +111,15 @@ def download_tidal(tidal_url):
     log_message(f"Starting Tidal download for URL: {tidal_url}")
     
     try:
-        # Get the download directory from environment or use default
-        download_dir = os.getenv("TIDAL_DOWNLOAD_DIR", "/mnt/Elements/other")
+        # Get the download directory from environment or use a relative default
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        default_download_dir = os.path.join(script_dir, "downloads")
+        download_dir = os.getenv("TIDAL_DOWNLOAD_DIR", default_download_dir)
+        
+        # Create the download directory if it doesn't exist
+        if not os.path.exists(download_dir):
+            os.makedirs(download_dir, exist_ok=True)
+            
         log_message(f"Using download directory: {download_dir}")
         
         # Get list of files before download

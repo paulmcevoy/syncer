@@ -4,9 +4,9 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/syncer
-ExecStart=/bin/bash %h/syncer/drive_monitor.sh
-Environment="PATH=%h/syncer/.venv/bin:$PATH"
+WorkingDirectory=INSTALL_DIR
+ExecStart=/bin/bash INSTALL_DIR/drive_monitor.sh
+Environment="PATH=INSTALL_DIR/.venv/bin:$PATH"
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
