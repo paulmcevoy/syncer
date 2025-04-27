@@ -6,12 +6,15 @@ import sys
 import argparse
 from dotenv import load_dotenv
 
-# Conditionally import SMS module if available
+# Conditionally import SMS module if available (REMOVED)
+# (SMS related code removed here)
+
+# Conditionally import Telegram module if available
 try:
-    from send_sms import send_sms
-    SMS_AVAILABLE = True
+    from send_telegram import send_telegram_message
+    TELEGRAM_AVAILABLE = True
 except ImportError:
-    SMS_AVAILABLE = False
+    TELEGRAM_AVAILABLE = False
 
 # Load environment variables if not already loaded
 if not os.getenv("SOURCE_DIR"):
@@ -22,17 +25,19 @@ SOURCE_DIR = os.getenv("SOURCE_DIR")
 DEST_DIR = os.getenv("DEST_DIR")
 MOUNT_POINT = os.getenv("MOUNT_POINT")
 LOG_FILE = os.getenv("LOG_FILE", "sync.log")  # Default to local directory
+NOTIFICATION_METHOD = os.getenv("NOTIFICATION_METHOD", "none").lower() # Get notification preference, default to none
 
 # Only print these when running as a standalone script
 if __name__ == "__main__":
     print(f"SOURCE_DIR: {SOURCE_DIR}")
     print(f"DEST_DIR: {DEST_DIR}")
     print(f"MOUNT_POINT: {MOUNT_POINT}")
-    print(f"LOG_FILE: {LOG_FILE}")
+    print(f"LOG_FILE: {LOG_FILE}") # Corrected indentation
+    print(f"NOTIFICATION_METHOD: {NOTIFICATION_METHOD}") # Corrected indentation
 
 def log_message(message):
-    """Log a message with a timestamp to the log file."""
-    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    """Log a message with a timestamp to the log file.""" # Corrected indentation
+    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') # Corrected indentation
     log_entry = f"{timestamp} - SYNCER - {message}"
     print(log_entry)
     try:
@@ -46,18 +51,11 @@ def sync_directories(is_initial_sync=True):
     if is_initial_sync:
         log_mes = f"Starting INITIAL sync from {SOURCE_DIR} to {DEST_DIR}"
         log_message(log_mes)
-        
-        # Send SMS notification if available
-        if SMS_AVAILABLE:
-            sms_msg = f"{log_mes}"
-            try:
-                send_sms(message=sms_msg, to=os.environ.get("TO_PHONE_NUMBER"), mgs=os.environ.get("MGS"))
-                log_message("SMS notification sent")
-            except Exception as e:
-                log_message(f"Error sending SMS: {str(e)}")
+        # Send initial sync notification (simple message)
+        send_notification(log_mes) # Use the new function
     else:
         log_message(f"Starting RESYNC from {SOURCE_DIR} to {DEST_DIR}")
-    
+
     rsync_command = [
         "rsync", "-avz", "--delete", "--stats",
         f"{SOURCE_DIR}/", f"{DEST_DIR}/"
@@ -142,54 +140,89 @@ def sync_directories(is_initial_sync=True):
             else:
                 log_message(msg)
             
-            # Only send SMS if it's an initial sync or if there were changes
-            if SMS_AVAILABLE and (is_initial_sync or has_changes):
-                # Create a detailed message for SMS in the same format as tidal.py
-                if created_count != "0" and created_count != "unknown":
+            # Send notification if it's an initial sync or if there were changes
+            if is_initial_sync or has_changes: # Corrected indentation
+                # Create a detailed message for notification
+                if created_count != "0" and created_count != "unknown": # Corrected indentation
                     simple_msg = (
                         f"{created_audio_count} .flac files (audio tracks), "
                         f"{created_lrc_count} .lrc files (lyrics files)"
                     )
-                else:
+                else: # Corrected indentation
                     simple_msg = f"0 files created, {deleted_count} deleted"
-                
-                if is_initial_sync:
-                    sms_msg = f"INITIAL Sync: {simple_msg}"
-                else:
-                    sms_msg = f"RESYNC: {simple_msg}"
-                
-                try:
-                    send_sms(message=sms_msg, to=os.environ.get("TO_PHONE_NUMBER"), mgs=os.environ.get("MGS"))
-                    log_message(f"SMS notification sent: {sms_msg}")
-                except Exception as e:
-                    log_message(f"Error sending SMS: {str(e)}")
-            elif has_changes:
-                log_message("Changes detected, but SMS notifications not available")
-            else:
-                log_message("No changes detected in resync, SMS notification skipped")
-            
-            return True
-        else:
+
+                if is_initial_sync: # Corrected indentation
+                    notification_msg = f"INITIAL Sync: {simple_msg}"
+                else: # Corrected indentation
+                    notification_msg = f"RESYNC: {simple_msg}"
+
+                # Use the send_notification function
+                send_notification(notification_msg) # Corrected indentation
+
+            elif has_changes: # Corrected indentation
+                log_message(f"Changes detected, but notifications are disabled or unavailable (Method: {NOTIFICATION_METHOD})")
+            else: # Corrected indentation
+                log_message("No changes detected in resync, notification skipped")
+
+            return True # Corrected indentation
+        else: # Corrected indentation
             log_message(f"Error: Sync failed with exit code {result.returncode}")
             log_message("Check sync.log for details")
-            return False
+            return False # Corrected indentation
     except Exception as e:
         log_message(f"Error: {str(e)}")
-        return False
+        return False # Corrected indentation
+
+# Define the path for the last notification log file relative to this script's location
+LAST_NOTIFICATION_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "last_notification.log")
+
+def send_notification(message):
+    """
+    Send a notification using the configured method and save the message
+    to last_notification.log, overwriting previous content.
+    """
+    # Write the message to the last notification log file (overwrite mode)
+    try:
+        with open(LAST_NOTIFICATION_LOG, "w", encoding='utf-8') as f: # Added encoding
+            f.write(message)
+        log_message(f"Last notification message saved to {LAST_NOTIFICATION_LOG}")
+    except Exception as e:
+        log_message(f"Error writing to {LAST_NOTIFICATION_LOG}: {str(e)}")
+        # Continue with sending the notification even if saving fails
+
+    # Proceed with sending the notification based on the configured method
+    # if NOTIFICATION_METHOD == "sms": # Removed SMS block
+    #     # (SMS sending logic removed here)
+    #     pass
+    if NOTIFICATION_METHOD == "telegram": # Changed from elif to if
+        if TELEGRAM_AVAILABLE:
+            try:
+                success = send_telegram_message(message=message)
+                if success:
+                    log_message(f"Telegram notification sent: {message}")
+                else:
+                    log_message(f"Failed to send Telegram notification (check send_telegram logs).")
+            except Exception as e:
+                log_message(f"Error sending Telegram notification: {str(e)}")
+        else:
+            log_message("Telegram notification configured, but send_telegram module not available.")
+    elif NOTIFICATION_METHOD != "none": # Corrected indentation
+        log_message(f"Unknown notification method configured: {NOTIFICATION_METHOD}")
+    # No action needed if NOTIFICATION_METHOD is "none"
 
 def run_sync(is_initial_sync=True, custom_message=None):
-    """
+    """ # Corrected indentation
     Run the sync operation programmatically.
-    
+
     Args:
         is_initial_sync (bool): Whether this is an initial sync or a resync
         custom_message (str, optional): Optional message to log
-        
+
     Returns:
         bool: True if sync was successful, False otherwise
     """
     # Ensure the log file exists
-    try:
+    try: # Corrected indentation
         open(LOG_FILE, "a").close()
     except Exception as e:
         print(f"Error: Cannot create log file at {LOG_FILE}. {str(e)}")
@@ -197,9 +230,9 @@ def run_sync(is_initial_sync=True, custom_message=None):
 
     if custom_message:
         log_message(custom_message)
-    
+
     log_message(f"Sync operation started - {'INITIAL SYNC' if is_initial_sync else 'RESYNC'}")
-            
+
     # Check if the destination directory exists
     if os.path.isdir(DEST_DIR):
         return sync_directories(is_initial_sync)

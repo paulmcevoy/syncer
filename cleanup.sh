@@ -1,4 +1,4 @@
-#!/bin/bash
+    #!/bin/bash
 
 # Cleanup script for the syncer system
 # This script removes all files generated during the installation process
@@ -52,11 +52,12 @@ print_message "Removing log files..."
 rm -f "${SCRIPT_DIR}/sync.log"
 rm -f "${SCRIPT_DIR}/tidal.log"
 
-# Remove environment files
-if [ -f "${SCRIPT_DIR}/.env" ]; then
-    print_message "Removing .env file..."
-    rm "${SCRIPT_DIR}/.env"
-fi
+# Remove environment files (KEEPING .env)
+# if [ -f "${SCRIPT_DIR}/.env" ]; then
+#     print_message "Removing .env file..."
+#     rm "${SCRIPT_DIR}/.env"
+# fi
+print_message "Skipping removal of .env file to preserve configuration."
 
 if [ -f "${SCRIPT_DIR}/.env.new" ]; then
     print_message "Removing .env.new file..."
@@ -67,7 +68,9 @@ fi
 print_message "Removing wrapper scripts..."
 rm -f "${SCRIPT_DIR}/syncer_wrapper.sh"
 rm -f "${SCRIPT_DIR}/tidal_wrapper.sh"
-rm -f "${SCRIPT_DIR}/send_sms_wrapper.sh"
+# rm -f "${SCRIPT_DIR}/send_sms_wrapper.sh" # Already removed
+rm -f "${SCRIPT_DIR}/send_telegram_wrapper.sh"
+rm -f "${SCRIPT_DIR}/systemd_sync_wrapper.sh"
 
 # Remove downloads directory
 if [ -d "${SCRIPT_DIR}/downloads" ]; then
@@ -123,7 +126,11 @@ fi
 print_message "Resetting Python shebangs..."
 sed -i "1s|^#!.*$|#!/usr/bin/env python3|" "${SCRIPT_DIR}/syncer.py"
 sed -i "1s|^#!.*$|#!/usr/bin/env python3|" "${SCRIPT_DIR}/tidal.py"
-sed -i "1s|^#!.*$|#!/usr/bin/env python3|" "${SCRIPT_DIR}/send_sms.py"
+# sed -i "1s|^#!.*$|#!/usr/bin/env python3|" "${SCRIPT_DIR}/send_sms.py" # Removed SMS shebang reset
+# Assuming send_telegram.py might have been modified, reset it too if it exists
+if [ -f "${SCRIPT_DIR}/send_telegram.py" ]; then
+    sed -i "1s|^#!.*$|#!/usr/bin/env python3|" "${SCRIPT_DIR}/send_telegram.py"
+fi
 
 print_message "Cleanup completed successfully!"
 print_message "The directory is now clean as if freshly cloned from git."
